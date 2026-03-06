@@ -67,7 +67,7 @@ Instead of a single band (8–30 Hz), the signal is decomposed into several sub-
 <img width="1721" height="789" alt="image" src="https://github.com/user-attachments/assets/b4599ede-04a1-40c2-bff6-59d931d9ea6f" />
 
 
-## Feature Selection
+### Feature Selection
 
 Because FBCSP generates many features, a mutual information (MI) ranking algorithm is used to select the most discriminative ones.
 
@@ -81,7 +81,7 @@ The pipeline:
 
 To avoid artifacts dominating feature ranking, a noise exclusion buffer removes features with unrealistically high MI scores caused by muscular or ocular artifacts.
 
-## Classification
+### Classification
 
 Classification is performed using:
 
@@ -105,3 +105,36 @@ Two tasks are evaluated:
 Movement vs Rest (relevant for further lab paradigm)
 Left vs Right imagery (benchmark task)
 
+## Deep Learning Pipeline: EEGNet
+
+EEGNet replaces handcrafted feature extraction with end-to-end learning.
+
+<img width="1506" height="439" alt="image" src="https://github.com/user-attachments/assets/9e933857-1419-45e2-90e4-06973233330c" />
+
+Architecture components:
+
+*Block 1:* Temporal Convolution
+
+Learns frequency filters similar to band-pass filtering.
+
+*Block 2:* Depthwise Spatial Convolution
+
+Captures spatial relationships between electrodes.
+
+*Block 3:* Separable Convolution
+
+Extracts joint spatial-temporal features.
+
+*Output Layer*
+
+Dense layer + Softmax classifier.
+
+Training configuration:
+
+Optimizer: Adam
+Learning rate: 0.001
+Epochs: 200
+Dropout: 0.25
+Batch normalization
+
+EEGNet is designed to work well with small EEG datasets, making it suitable for BCI research.
