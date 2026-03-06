@@ -144,9 +144,10 @@ EEGNet is designed to work well with small EEG datasets, making it suitable for 
 
 ## ISR Data and Paradigm
 
-Following working with publicly available datasets used for offline benchmarking, custom laboratory experiments were conducted at the Institute of Systems and Robotics (ISR), University of Coimbra. The offline experiments served to optimize and validate the classification pipelines, particularly the estimation of accurate spatial filters and feature representations. These optimized models were subsequently integrated into a real-time Brain–Computer Interface (BCI) framework to provide neural feedback, targeting applications in neurorehabilitation.
+Following working with publicly available datasets used for offline benchmarking, custom laboratory experiments were conducted at the Institute of Systems and Robotics (ISR), University of Coimbra. The offline experiments served to optimize and validate the classification pipelines, particularly the estimation of accurate spatial filters and feature representations. These optimized models were subsequently integrated into a real-time Brain–Computer Interface framework to provide neural feedback, targeting applications in neurorehabilitation.
 
 The objective of these sessions was to extend the offline analysis toward online motor imagery decoding into real BCI framework, enabling users to receive immediate feedback based on their brain activity.
+
 
 ## Experimental Setup
 The real-time system consisted of the following components:
@@ -162,6 +163,8 @@ The real-time system consisted of the following components:
 - **Hand of Hope (HoH) robotic hand**
 - Visual interface - vertical bar increase/decrease
 - Used to provide **motor feedback** triggered by detected motor imagery
+
+The online feedback experiment is completely set up in the MATLAB and Simulink environment.
 
 ### BCI processing pipeline
 
