@@ -58,3 +58,50 @@ For each EEG trial:
 
 
 making the algorithm interpretable, computationally efficient and suitable for real-time BCIs.
+
+### Filter Bank Common Spatial Patterns (FBCSP)
+
+FBCSP extends CSP by analyzing multiple frequency bands.
+Instead of a single band (8–30 Hz), the signal is decomposed into several sub-bands  (4 Hz intervals), CSP is applied independently to each band, and the resulting features are concatenated.
+
+<img width="1721" height="789" alt="image" src="https://github.com/user-attachments/assets/b4599ede-04a1-40c2-bff6-59d931d9ea6f" />
+
+
+## Feature Selection
+
+Because FBCSP generates many features, a mutual information (MI) ranking algorithm is used to select the most discriminative ones.
+
+The pipeline:
+1. Compute MI between each feature and class label
+2. Rank features by MI score
+3. Select top-K features
+
+<img width="1400" height="500" alt="MI_score_selection" src="https://github.com/user-attachments/assets/3131fe28-2753-47d1-bc7e-252be6410419" />
+<img width="1536" height="762" alt="topoplots_selected_fbcsp" src="https://github.com/user-attachments/assets/023e8e61-264d-4bac-9309-92d309eeb2ba" />
+
+To avoid artifacts dominating feature ranking, a noise exclusion buffer removes features with unrealistically high MI scores caused by muscular or ocular artifacts.
+
+## Classification
+
+Classification is performed using:
+
+SVM (Support Vector Machine)
+* Kernel: RBF
+* C = 1
+* γ = 0.01
+
+Evaluation protocol:
+
+5 × 5 cross-validation
+
+Accuracy
+
+Cohen’s κ
+
+Confusion matrix
+
+Two tasks are evaluated:
+
+Movement vs Rest (relevant for further lab paradigm)
+Left vs Right imagery (benchmark task)
+
