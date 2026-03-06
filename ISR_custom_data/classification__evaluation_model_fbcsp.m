@@ -1,0 +1,359 @@
+function [cspw, model, mean_acc, std_acc] = classification__evaluation_model_fbcsp(folderCalib1, folderCalib2, folderEval, csp_para, fs, start_sec, end_sec, class1, class2, ...
+                                                 N_channels, Window_buff, T_task_class, classes, chunk_length_sec)
+% Robust FBCSP implementation with anti-overfitting measures
+
+%% Parameters with stricter validation
+band_edges = [8 12; 12 16; 16 20; 20 24; 24 28; 28 32];
+num_bands = size(band_edges, 1);
+
+min_trials_per_class = 5;
+rng(42); % For reproducibility
+
+%% Calibration Data Loading
+[X_calib1, y_calib1] = load_eeg_data(folderCalib1, N_channels, Window_buff, T_task_class, classes, chunk_length_sec, fs);
+[X_calib2, y_calib2] = load_eeg_data(folderCalib2, N_channels, Window_buff, T_task_class, classes, chunk_length_sec, fs);
+
+% Concatenate calibration datasets
+X_calib = cat(1, X_calib1, X_calib2);
+y_calib = cat(1, y_calib1, y_calib2);
+
+
+% Class validation
+[class1, class2, n_trials_class1, n_trials_class2] = validate_classes(y_calib, class1, class2, min_trials_per_class);
+
+% Time segmentation
+[X_calib, ~, ~] = segment_data(X_calib, fs, start_sec, end_sec, N_channels);
+% Separate classes
+[X1_calib, X2_calib, ~] = separate_classes(X_calib, y_calib, class1, class2);
+
+%% Evaluation Data Loading
+
+[X_eval, y_eval] = load_eeg_data(folderEval, N_channels, Window_buff, [6 2 6 6], classes, chunk_length_sec, fs);
+
+% Time segmentation
+[X_eval, ~, ~] = segment_data(X_eval, fs, start_sec, end_sec, N_channels);
+
+% Separate classes
+[X1_eval, X2_eval, ~] = separate_classes(X_eval, y_eval, class1, class2);
+
+
+fprintf('Class distribution in calibration data:\n');
+tabulate(y_calib);
+
+fprintf('Class distribution in evaluation data:\n');
+tabulate(y_eval);
+
+%% Filter Bank Processing
+filtered_data_calib = struct();
+filtered_data_eval = struct();
+
+
+for b = 1:num_bands
+    band_str = sprintf('band%d', b);
+    
+    fprintf('b = %d, band = [%.2f, %.2f], fs = %.2f\n', b, band_edges(b,1), band_edges(b,2), fs);
+
+    [filtered_data_calib.(band_str).X1, ~] = bandpass_filter_with_rejection(X1_calib, band_edges(b,1), band_edges(b,2), fs);
+    fprintf('Calling filter on X2_calib (%d trials)...\n', size(X2_calib,1));
+    disp('----------------------');
+disp(['b = ', num2str(b)]);
+disp(['band_str = ', band_str]);
+disp('band_edges size:'); disp(size(band_edges));
+disp('Accessing: band_edges(b,:)'); disp(band_edges(b,:));
+
+    [filtered_data_calib.(band_str).X2, ~] = bandpass_filter_with_rejection(X2_calib, band_edges(b,1), band_edges(b,2), fs);
+    
+    [filtered_data_eval.(band_str).X1, ~] = bandpass_filter_with_rejection(X1_eval, band_edges(b,1), band_edges(b,2), fs);
+    [filtered_data_eval.(band_str).X2, ~] = bandpass_filter_with_rejection(X2_eval, band_edges(b,1), band_edges(b,2), fs);
+end
+
+%% CSP and Feature Processing
+features_train = [];
+features_test = [];
+labels_train = [];
+labels_test = [];
+
+for b = 1:num_bands
+    band_str = sprintf('band%d', b);
+    
+    % CSP
+    [cspw, F1_train, F2_train] = regularized_csp(filtered_data_calib.(band_str).X1, filtered_data_calib.(band_str).X2, csp_para);
+    
+    % Project eval data
+    Z1_test = project_trials(filtered_data_eval.(band_str).X1, cspw, csp_para);
+    Z2_test = project_trials(filtered_data_eval.(band_str).X2, cspw, csp_para);
+    F1_test = log_normalized_features(Z1_test);
+    F2_test = log_normalized_features(Z2_test);
+    
+    % Normalize
+    [F1_train_norm, F2_train_norm] = normalize_features(F1_train, F2_train);
+    [F1_test_norm, F2_test_norm] = normalize_features(F1_test, F2_test); % Independent normalization
+
+    % Accumulate features and labels
+    features_train = [features_train; [F1_train_norm; F2_train_norm]];
+    labels_train = [labels_train; zeros(size(F1_train,1),1); ones(size(F2_train,1),1)];
+    
+    features_test = [features_test; [F1_test_norm; F2_test_norm]];
+    labels_test = [labels_test; zeros(size(F1_test,1),1); ones(size(F2_test,1),1)];
+end
+
+%% Feature selection 
+% on training set only!
+[selected_features, ~] = select_features_mi(features_train, labels_train, min(4, size(features_train,2)));
+
+% Apply selection to both train and test sets
+features_train = features_train(:, selected_features);
+features_test = features_test(:, selected_features);
+
+%% Final Outputs
+model = fitcdiscr(features_train, labels_train, 'Gamma', 0.5);
+
+y_pred = predict(model, features_test);
+acc = sum(y_pred == labels_test) / length(labels_test);
+mean_acc = acc;
+std_acc = 0; % or compute std if you have multiple runs/folds
+
+
+fprintf('\nEvaluation Accuracy: %.2f%%\n', acc*100);
+%% Enhanced Helper Functions
+function [X_all, y_all] = load_eeg_data(folderName, N_channels, Window_buff, ...
+                                       T_task_class, classes, chunk_length_sec, fs)
+    files = dir(fullfile(folderName, '**/*.mat'));
+    X_all = [];
+    y_all = [];
+    
+    for f = 1:length(files)
+        filePath = fullfile(files(f).folder, files(f).name);
+        try
+            loaded = load(filePath);
+            disp(['Loaded: ' filePath]); % Debug print
+            disp(fieldnames(loaded));    % Show contents
+            
+            % Check for alternative field names
+            if isfield(loaded, 'EEG') || isfield(loaded, 'data')
+                % Handle different data structures
+                if isfield(loaded, 'EEG')
+                    data = loaded.EEG;
+                else
+                    data = loaded.data;
+                end
+                
+                % Process data and create labels if needed
+                [X, y_label] = custom_processing(data, N_channels, Window_buff, ...
+                                                T_task_class, classes, chunk_length_sec);
+            elseif isfield(loaded, 'y')
+                [X, y_label] = data_load_trials(loaded.y, N_channels, Window_buff, ...
+                                              T_task_class, classes, chunk_length_sec);
+            else
+                warning('No valid data fields in %s', files(f).name);
+                continue;
+            end
+            
+            if isempty(X)
+                warning('Empty data from %s', files(f).name);
+                continue;
+            end
+            
+            % Preprocessing
+            X = notchFilter(X, 50, fs);
+            X = permute(X, [3, 1, 2]);
+            
+            X_all = cat(1, X_all, X);
+            y_all = cat(1, y_all, y_label);
+            
+        catch ME
+            warning('Failed to load %s: %s', files(f).name, ME.message);
+            disp(getReport(ME)); % More detailed error
+        end
+    end
+    
+    if isempty(X_all)
+        error('No valid data loaded from %s', folderName);
+    end
+end
+    
+  function [X1, X2, class2_label] = separate_classes(X_all, y_all, class1, class2)
+        % First ensure we have valid indices
+        class1_idx = find(y_all == class1);
+        if isempty(class1_idx)
+            error('No trials found for class %d', class1);
+        end
+        
+        if isscalar(class2)
+            class2_idx = find(y_all == class2);
+            class2_label = sprintf('Class %d', class2);
+        else
+            class2_idx = find(ismember(y_all, class2));
+            class2_label = sprintf('Classes [%s]', num2str(class2));
+        end
+        
+        if isempty(class2_idx)
+            error('No trials found for class(es) %s', class2_label);
+        end
+        
+        X1 = X_all(class1_idx, :, :);
+        X2 = X_all(class2_idx, :, :);
+        
+        disp(['Separated classes: ' num2str(class1) ' (n=' num2str(size(X1,1)) ...
+              ') vs ' class2_label ' (n=' num2str(size(X2,1)) ')']);
+    end
+
+    function [X_filt, rejected] = bandpass_filter_with_rejection(X, low_freq, high_freq, fs)
+        [b_filt, a] = butter(4, [low_freq high_freq]/(fs/2), 'bandpass');
+        X_filt = zeros(size(X));
+        rejected = [];
+        amp_threshold = 100; % µV
+        
+        
+        for i = 1:size(X,1)
+            trial = squeeze(X(i,:,:));
+            filtered = zeros(size(trial));
+            
+            for ch = 1:size(trial,1)
+                filtered(ch,:) = filtfilt(b_filt, a, trial(ch,:));
+            end
+            
+            if max(abs(filtered(:))) > amp_threshold
+                rejected = [rejected; i];
+            else
+                X_filt(i,:,:) = filtered;
+            end
+        end
+        
+        X_filt(rejected,:,:) = [];
+    end
+
+    function [cspw, F1, F2] = regularized_csp(X1, X2, m)
+        % Regularized covariance estimation
+        gamma = 0.1; % Shrinkage parameter
+        
+        C1 = cov_avg(X1);
+        C1 = (1-gamma)*C1 + gamma*mean(eig(C1))*eye(size(C1));
+        
+        C2 = cov_avg(X2);
+        C2 = (1-gamma)*C2 + gamma*mean(eig(C2))*eye(size(C2));
+        
+        Cc = C1 + C2;
+        [V, D] = eig(Cc);
+        [D, idx] = sort(diag(D), 'descend');
+        V = V(:, idx);
+        
+        P = diag(1./sqrt(D)) * V';
+        S1 = P * C1 * P';
+        
+        [V2, D2] = eig(S1);
+        [D2, idx2] = sort(diag(D2), 'descend');
+        V2 = V2(:, idx2);
+        
+        cspw = V2' * P;
+        
+        % Project data
+        Z1 = project_trials(X1, cspw, m);
+        Z2 = project_trials(X2, cspw, m);
+        
+        % More robust feature extraction
+        F1 = log_normalized_features(Z1);
+        F2 = log_normalized_features(Z2);
+    end
+
+    function [F1_norm, F2_norm] = normalize_features(F1, F2)
+        % Joint normalization prevents data leakage
+        all_features = [F1; F2];
+        mu = mean(all_features);
+        sigma = std(all_features);
+        sigma(sigma == 0) = 1; % Prevent division by zero
+        
+        F1_norm = (F1 - mu) ./ sigma;
+        F2_norm = (F2 - mu) ./ sigma;
+    end
+
+    function features = log_normalized_features(Z)
+        varZ = var(Z, 0, 3);
+        features = log10(varZ ./ sum(varZ,2) + eps); % Add eps to avoid log(0)
+    end
+
+    
+
+    function [X_all, start_idx, end_idx] = segment_data(X_all, fs, start_sec, end_sec, N_channels)
+        max_samples = size(X_all,3);
+        start_idx = max(1, round(start_sec * fs));
+        end_idx = min(max_samples, round(end_sec * fs));
+        
+        if start_idx >= end_idx
+            error('Invalid time window: start (%.2fs) >= end (%.2fs)',...
+                  start_idx/fs, end_idx/fs);
+        end
+        
+        if size(X_all,2) < N_channels
+            warning('Only %d channels available, using all', size(X_all,2));
+            N_channels = size(X_all,2);
+        end
+        
+        X_all = X_all(:, 1:N_channels, start_idx:end_idx);
+        disp(['Segmented data size: ' mat2str(size(X_all))]);
+    end
+
+    function [class1, class2, n1, n2] = validate_classes(y_all, class1, class2, min_trials)
+        unique_classes = unique(y_all);
+        fprintf('Available classes in data: %s\n', mat2str(unique_classes'));
+        
+        % Handle class1
+        n1 = sum(y_all == class1);
+        if n1 < min_trials
+            error('Insufficient trials (%d) for class %d (minimum %d required)', n1, class1, min_trials);
+        end
+        
+        % Handle class2 (single class or combination)
+        if isscalar(class2)
+            n2 = sum(y_all == class2);
+            if n2 < min_trials
+                error('Insufficient trials (%d) for class %d (minimum %d required)', n2, class2, min_trials);
+            end
+        else % Combination like [3 4]
+            n2 = sum(ismember(y_all, class2));
+            if n2 < min_trials
+                error('Insufficient trials (%d) for classes [%s] (minimum %d required)', ...
+                      n2, num2str(class2), min_trials);
+            end
+        end
+    end
+    
+
+    function C = cov_avg(X)
+        n_trials = size(X,1);
+        n_channels = size(X,2);
+        C = zeros(n_channels);
+        
+        for i = 1:n_trials
+            trial = squeeze(X(i,:,:));
+            cov_mat = (trial * trial') / trace(trial * trial');
+            C = C + cov_mat;
+        end
+        C = C / n_trials;
+    end
+
+    function Z = project_trials(X, W, m)
+        Wm = [W(1:m,:); W(end-m+1:end,:)];
+        n_trials = size(X,1);
+        Z = zeros(n_trials, 2*m, size(X,3));
+        
+        for i = 1:n_trials
+            Z(i,:,:) = Wm * squeeze(X(i,:,:));
+        end
+    end
+
+    function plot_single_trial(data, fs)
+        % data: [channels x samples] matrix
+        t = (0:size(data,2)-1) / fs;
+        plot(t, data');
+        xlabel('Time (s)');
+        ylabel('Amplitude (μV)');
+        title('EEG Trial');
+    end
+
+    function [selected_idx, scores] = select_features_mi(features, labels, num_features)
+        % MATLAB's equivalent of mutual information feature selection
+        [idx, scores] = fscmrmr(features, labels);
+        selected_idx = idx(1:num_features);
+    end
+end

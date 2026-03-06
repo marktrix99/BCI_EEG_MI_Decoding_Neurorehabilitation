@@ -1,0 +1,103 @@
+% Parameters
+fs = 256;               % Sampling frequency
+trial_duration = 6;     % seconds
+analysis_start = 0.5;   % start analysis after 0.5s
+analysis_window = 2;  % analyze 1.5s window
+
+% Convert time to samples
+start_sample = round(analysis_start * fs) ;
+end_sample = start_sample + round(analysis_window * fs) - 1;
+samples_per_trial = trial_duration * fs;
+
+% Determine number of trials
+num_trials_total = size(y, 2) / samples_per_trial;
+valid_trials = [];  % Skip first 2 trials
+for trial = 3:num_trials_total  % Still skip first 2 trials
+    trial_start = (trial-1)*samples_per_trial + 1;
+    trial_end = trial*samples_per_trial;
+    
+    % Get true label from row 18 over the trial window
+    true_label = mode(y(18, trial_start:trial_end));
+    
+    % Include only if true label is 3 or 4
+    if true_label == 3 || true_label == 4
+        valid_trials(end+1) = trial;
+    end
+end
+
+% Update number of trials
+num_trials = length(valid_trials);
+
+% Create figure
+figure('Position', [100 100 1200 600]);
+
+% Process each relevant trial
+for i = 1:num_trials
+    trial = valid_trials(i);  % Get actual trial number (starting from 3)
+    trial_start = (trial-1)*samples_per_trial + 1;
+    trial_end = trial*samples_per_trial;
+    
+    % Extract trial data
+    true_label = mode(y(18, trial_start:trial_end));  % Most frequent value in trial
+    measured_values = y(19, trial_start + start_sample - 1 : trial_start + end_sample - 1);
+    
+    % Determine if measurement matches true label
+    if true_label == 1  % Rest class (should be 0 in row 19)
+        match = all(measured_values == 0);
+    else  % Movement classes (3 or 4, should be 1.5 or 0.5 in row 19)
+        expected_value = (true_label == 3) * 1.5 + (true_label == 4) * 0.5;
+        match = all(abs(measured_values - expected_value) < 0.1);  % Small tolerance
+    end
+    
+    % Update counters
+    if match
+        correct_count = correct_count + 1;
+        accuracy_per_trial(i) = 1;
+    end
+    total_checked = total_checked + 1;
+    
+    % Plotting each trial
+    subplot(ceil(num_trials/4), 4, i);
+    plot(y(18, trial_start:trial_end), 'b', 'LineWidth', 1.5);
+    hold on;
+    plot(y(19, trial_start:trial_end), 'r', 'LineWidth', 1.5);
+    
+    % Mark analysis window
+    xline(start_sample, '--k', 'Start');
+    xline(end_sample, '--k', 'End');
+    
+    title(sprintf('Trial %d: %s', trial, match));
+    ylim([-0.5 4.5]);
+    grid on;
+    if i == 1
+        legend('True (18)', 'Measured (19)');
+    end
+end
+
+% Calculate overall accuracy
+overall_accuracy = correct_count / total_checked * 100;
+
+% Create summary plot
+figure;
+plot(accuracy_per_trial, '-o', 'LineWidth', 2, 'MarkerSize', 8);
+ylim([0 1.2]);
+yticks([0 1]);
+yticklabels({'Incorrect', 'Correct'});
+xlabel('Trial Number (excluding 1-2)');
+ylabel('Accuracy');
+title(sprintf('Trial-by-Trial Accuracy (Overall: %.1f%%)', overall_accuracy));
+grid on;
+
+% Display results
+fprintf('\nAnalysis Results (excluding trials 1-2):\n');
+fprintf('Time window analyzed: %.1fs to %.1fs\n', ...
+    analysis_start, analysis_start+analysis_window);
+fprintf('Number of trials analyzed: %d\n', num_trials);
+fprintf('Correct classifications: %d\n', correct_count);
+fprintf('Overall accuracy: %.2f%%\n', overall_accuracy);
+
+% Additional metrics (excluding first 2 trials)
+true_labels = y(18, (valid_trials(1)-1)*samples_per_trial+1 : end);
+class_distribution = tabulate(true_labels(1:samples_per_trial:end));
+fprintf('\nClass distribution (excluding trials 1-2):\n');
+disp(array2table(class_distribution, 'VariableNames', {'Class', 'Count', 'Percentage'}));
