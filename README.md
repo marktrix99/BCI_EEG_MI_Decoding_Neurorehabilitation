@@ -138,3 +138,47 @@ Dropout: 0.25
 Batch normalization
 
 EEGNet is designed to work well with small EEG datasets, making it suitable for BCI research.
+
+### Results Comparison
+<img width="575" height="847" alt="image" src="https://github.com/user-attachments/assets/41b84d51-2e78-46b7-b080-8c601c24f03b" />
+
+## ISR Data and Paradigm
+
+Following working with publicly available datasets used for offline benchmarking, custom laboratory experiments were conducted at the Institute of Systems and Robotics (ISR), University of Coimbra. The offline experiments served to optimize and validate the classification pipelines, particularly the estimation of accurate spatial filters and feature representations. These optimized models were subsequently integrated into a real-time Brain–Computer Interface (BCI) framework to provide neural feedback, targeting applications in neurorehabilitation.
+
+The objective of these sessions was to extend the offline analysis toward online motor imagery decoding into real BCI framework, enabling users to receive immediate feedback based on their brain activity.
+
+## Experimental Setup
+The real-time system consisted of the following components:
+
+### EEG acquisition
+
+- EEG cap: **g.tec medical engineering system**
+- Electrodes positioned over **sensorimotor cortical areas**
+- Real-time signal acquisition and streaming
+
+### Feedback device
+
+- **Hand of Hope (HoH) robotic hand**
+- Visual interface - vertical bar increase/decrease
+- Used to provide **motor feedback** triggered by detected motor imagery
+
+### BCI processing pipeline
+
+1. EEG signal acquisition  
+2. Real-time preprocessing and filtering  
+3. Feature extraction (**CSP / FBCSP**)  
+4. Motor imagery classification  
+5. Translation into control commands  
+6. Feedback generation
+
+---
+
+## Neural Feedback
+
+When the system successfully detected a motor imagery pattern, the user received **immediate feedback** in one of the following forms:
+
+- **Robotic feedback:** movement of the **Hand of Hope robotic hand**
+- **Visual feedback:** increase or decrease of a control bar displayed on screen
+
+This closed-loop interaction forms a **real-time BCI feedback system**, where brain activity directly influences an external device.
