@@ -1,5 +1,5 @@
 % Load .mat file
-rawdata = load('C:\Users\LENOVO\Documents\Uni\Master Thesis\ISR_Data\Test_03_07_2025\Calibração\Marko_03_07_rest_first\20250703_103517\signals.mat');
+rawdata = load('filepath');
 y = rawdata.y;
 
 % Constants
